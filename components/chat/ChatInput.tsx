@@ -1,14 +1,25 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { ImagePlus, Send, X } from "lucide-react";
+import { ImagePlus, Send, X, AlertTriangle, Plus } from "lucide-react";
 
 interface ChatInputProps {
   isSending: boolean;
-  onSendMessage: (query: string, imageFile: File | null, imagePreview: string | null) => Promise<void>;
+  isLimitReached: boolean;
+  onNewChat: () => void;
+  onSendMessage: (
+    query: string,
+    imageFile: File | null,
+    imagePreview: string | null
+  ) => Promise<void>;
 }
 
-export function ChatInput({ isSending, onSendMessage }: ChatInputProps) {
+export function ChatInput({
+  isSending,
+  isLimitReached,
+  onNewChat,
+  onSendMessage,
+}: ChatInputProps) {
   const [inputText, setInputText] = useState("");
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -30,7 +41,7 @@ export function ChatInput({ isSending, onSendMessage }: ChatInputProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if ((!inputText.trim() && !selectedImage) || isSending) return;
+    if ((!inputText.trim() && !selectedImage) || isSending || isLimitReached) return;
 
     const queryToSend = inputText;
     const fileToSend = selectedImage;
@@ -40,6 +51,28 @@ export function ChatInput({ isSending, onSendMessage }: ChatInputProps) {
     clearImage();
 
     await onSendMessage(queryToSend, fileToSend, previewToSend);
+  }
+
+  if (isLimitReached) {
+    return (
+      <div className="p-4 bg-amber-50 border-t border-amber-200">
+        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-amber-900 text-sm">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>
+              This consultation has reached its 20-message limit to ensure clinical accuracy. Start a new consultation to continue.
+            </span>
+          </div>
+          <button
+            onClick={onNewChat}
+            className="shrink-0 flex items-center gap-1.5 bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
+          >
+            <Plus className="w-4 h-4" />
+            New Consultation
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

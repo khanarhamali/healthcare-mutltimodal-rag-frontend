@@ -17,6 +17,8 @@ export default function HomePage() {
     activeThreadId,
     messages,
     isSending,
+    isThreadLimitReached,
+    maxMessages,
     startNewChat,
     selectThread,
     removeThread,
@@ -48,13 +50,25 @@ export default function HomePage() {
       />
 
       <main className="flex-1 flex flex-col">
-        <ChatHeader activeThreadId={activeThreadId} />
+        <ChatHeader
+          activeThreadId={activeThreadId}
+          messageCount={messages.length}
+          maxMessages={maxMessages}
+          onDeleteActiveThread={() => activeThreadId && removeThread(activeThreadId)}
+          onLogout={signOut}
+        />
         <MessageList
           messages={messages}
           isSending={isSending}
           userEmail={user.email || "Patient"}
+          onQuickPrompt={(prompt) => sendMessage(prompt, null, null)}
         />
-        <ChatInput isSending={isSending} onSendMessage={sendMessage} />
+        <ChatInput
+          isSending={isSending}
+          isLimitReached={isThreadLimitReached}
+          onNewChat={startNewChat}
+          onSendMessage={sendMessage}
+        />
       </main>
     </div>
   );

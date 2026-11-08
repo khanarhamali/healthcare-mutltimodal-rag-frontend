@@ -1,17 +1,22 @@
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import {
   fetchUserThreads,
   fetchThreadHistory,
-  sendChatMessage,
+  streamChatMessage,
   deleteUserThread,
 } from "@/lib/api";
 import { Thread, ChatMessage } from "@/types/chat";
+
+export const MAX_THREAD_MESSAGES = 20;
 
 export function useChat(userId?: string) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+
+  const isThreadLimitReached = messages.length >= MAX_THREAD_MESSAGES;
 
   const loadThreads = useCallback(async () => {
     if (!userId) return;
@@ -54,8 +59,8 @@ export function useChat(userId?: string) {
         };
       });
       setMessages(parsed);
-    } catch (error) {
-      console.error("Error resuming thread:", error);
+    } catch (error: any) {
+      toast.error(error.message || "Could not resume consultation.");
     } finally {
       setIsSending(false);
     }
@@ -63,15 +68,25 @@ export function useChat(userId?: string) {
 
   async function removeThread(threadId: string) {
     if (!userId) return;
-    await deleteUserThread(userId, threadId);
-    if (activeThreadId === threadId) {
-      startNewChat();
+    try {
+      await deleteUserThread(userId, threadId);
+      if (activeThreadId === threadId) {
+        startNewChat();
+      }
+      await loadThreads();
+      toast.success("Permanent Erasure Complete: Consultation & images deleted.");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete consultation.");
     }
-    await loadThreads();
   }
 
   async function sendMessage(query: string, imageFile: File | null, imagePreview: string | null) {
     if (!userId || (!query.trim() && !imageFile) || isSending) return;
+
+    if (isThreadLimitReached) {
+      toast.warning("Thread limit reached (20 messages). Start a new consultation.");
+      return;
+    }
 
     setMessages((prev) => [
       ...prev,
@@ -80,38 +95,66 @@ export function useChat(userId?: string) {
         content: query.trim() || "Uploaded a skin image for analysis",
         image_url: imagePreview || undefined,
       },
+      {
+        role: "assistant",
+        content: "",
+      },
     ]);
     setIsSending(true);
 
     try {
-      const res = await sendChatMessage({
-        userId,
-        threadId: activeThreadId,
-        userQuery: query.trim(),
-        imageFile,
-      });
-
-      if (res.is_new_thread || !activeThreadId) {
-        setActiveThreadId(res.thread_id);
-        await loadThreads();
-      }
-
-      setMessages((prev) => [
-        ...prev,
+      await streamChatMessage(
         {
-          role: "assistant",
-          content: res.response,
-          detected_condition: res.detected_condition,
+          userId,
+          threadId: activeThreadId,
+          userQuery: query.trim(),
+          imageFile,
         },
-      ]);
-    } catch (error: any) {
-      setMessages((prev) => [
-        ...prev,
         {
+          onMeta: async (meta) => {
+            if (meta.is_new_thread || !activeThreadId) {
+              setActiveThreadId(meta.thread_id);
+              await loadThreads();
+            }
+          },
+          onCondition: (condition) => {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              updated[lastIdx] = { ...updated[lastIdx], detected_condition: condition };
+              return updated;
+            });
+          },
+          onToken: (token) => {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              updated[lastIdx] = {
+                ...updated[lastIdx],
+                content: updated[lastIdx].content + token,
+              };
+              return updated;
+            });
+          },
+          onDone: async (info) => {
+            await loadThreads();
+            if (info.message_count >= info.max_messages) {
+              toast.info("This consultation has reached its 20-message limit.");
+            }
+          },
+        }
+      );
+    } catch (error: any) {
+      toast.error(error.message || "Connection error");
+      setMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        updated[lastIdx] = {
           role: "assistant",
           content: `Error: ${error.message || "Failed to connect to backend server."}`,
-        },
-      ]);
+        };
+        return updated;
+      });
     } finally {
       setIsSending(false);
     }
@@ -122,6 +165,8 @@ export function useChat(userId?: string) {
     activeThreadId,
     messages,
     isSending,
+    isThreadLimitReached,
+    maxMessages: MAX_THREAD_MESSAGES,
     startNewChat,
     selectThread,
     removeThread,
